@@ -1,0 +1,201 @@
+---
+title: "R Programming HW 5"
+author: 'Rudecia Bernard'
+format: 
+  html:
+    embed-resources: True
+editor: visual
+---
+
+## Part A: Housing Data
+
+Problem 1
+
+```{r}
+
+library(tidyverse)
+houses <- read.csv("~/Downloads/R Homework and Datasets/Houses.csv")
+
+colnames(houses)
+
+model_1 <- lm(Total ~ SQFT, data = houses)
+
+summary(model_1)
+
+```
+
+Problem 2:
+
+The model predicts that home price increases by 135.74 for every increase in square feet.
+
+Problem 3:
+
+R-squared value is 0.02974, which asserts that about 3% of the variability in the data is due to square footage of the house.
+
+Problem 4
+
+```{r}
+
+houses_p4 <- houses %>% 
+  filter(Total != max(houses$Total))
+
+model_2 <- lm(Total ~ SQFT, data = houses_p4)
+
+
+summary(model_2)
+```
+
+Problem 5
+
+Without the outlier, the R-squared increased dramatically. In the new model, approximately 67% of the variability in the data is accounted for by the square footage of the house.
+
+Problem 6
+
+```{r}
+
+
+model_3 <- lm(Total ~ Acres + SQFT, data = houses)
+
+
+summary(model_3)
+
+```
+
+Problem 7
+
+The R-squared of model 3 is 0.9651, which is significantly higher than the version that just removed the outlier.
+
+Problem 8
+
+```{r}
+
+t1 <- data.frame('Acres' = 0.5, 'SQFT' =2750)
+
+predict(model_3, t1)
+
+```
+
+## Part B
+
+Problem 1
+
+```{r}
+
+yt_a <- read.csv("~/Downloads/yt_comments_a.csv")
+yt_b <- read.csv("~/Downloads/yt_comments_b.csv")
+
+
+yt_a <- yt_a %>% 
+  mutate(spam = as.character(if_else(spam == 1, 'yes', 'no')))
+  
+
+
+yt_a %>%
+  count(spam)
+```
+
+Problem 2
+
+```{r}
+
+yt_a <- yt_a %>% 
+  mutate(has_website = as.factor(str_detect(content, 'http')))
+  
+  
+yt_a %>% 
+  group_by(has_website, spam) %>% 
+  summarize(count = n())
+
+```
+
+Problem 3
+
+```{r}
+
+library(rpart)
+
+model_4 <- rpart(spam ~ has_website, data = yt_a)
+
+model_4
+```
+
+Problem 4
+
+```{r}
+
+library(partykit)
+
+plot.party(as.party(model_4))
+```
+
+Problem 5
+
+```{r}
+
+yt_a <- yt_a %>% 
+  mutate(has_3_cons_nums = as.factor(str_detect(content, '\\d{3,}')),
+         has_3_cons_punct = as.factor(str_detect(content, '[:punct:]{3,}')),
+         has_sub = as.factor(str_detect(content, 'subscribe')))
+                             
+                             
+
+glimpse(yt_a)
+
+
+```
+
+Problem 6
+
+```{r}
+model_5 <- rpart(spam ~ has_website + has_3_cons_nums + has_3_cons_punct + has_sub, data = yt_a)
+
+ 
+model_5
+ 
+plot.party(as.party(model_5))
+```
+
+Problem 7
+
+```{r}
+
+yt_b <- yt_b %>% 
+   mutate(spam = as.character(if_else(spam == 1, 'yes', 'no')),
+          has_3_cons_nums = as.factor(str_detect(content, '\\d{3,}')),
+          has_3_cons_punct = as.factor(str_detect(content, '[:punct:]{3,}')),
+          has_sub = as.factor(str_detect(content, 'subscribe')),
+          has_website = as.factor(str_detect(content, 'http')))
+                             
+  
+
+glimpse(yt_b)
+```
+
+Problem 8
+
+```{r}
+
+preds <- data.frame(predict(model_5, yt_b)) %>% 
+  mutate(prediction = if_else(yes > no, 'yes', 'no')) %>% 
+  select(prediction)
+
+
+comp <- yt_b %>% 
+  mutate(predictions = preds$prediction) %>% 
+  group_by(predictions, spam) %>% 
+  summarize(num = n())
+
+
+comp
+
+true_pos <- comp$num[2] + comp$num[3]
+
+
+detected <- comp$num[3]
+
+detected/true_pos
+
+
+```
+
+It seems like the model was very specific but not sensitive– there were no false positives, but there were quite a few spam comments that were not detected by the model.
