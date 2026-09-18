@@ -1,0 +1,174 @@
+---
+title: "Travel Optimization"
+author: "Rudecia Bernard"
+date: "2026-05-04"
+output: html_document
+---
+
+## Interactive TSP App
+
+Here, I use simulated annealing to approach the traveling salesman problem (TSP), in which you find the shortest path necessary to pass through an entire list of locations. TSP is an NP hard optimization problem, and finding an explicit solution becomes essentially impossible for large N since there are N! possible combinations.
+
+### Libraries
+
+```{r}
+library(tidyverse)
+library(shiny)
+library(tidygeocoder)
+library(jsonlite)
+library(ellmer)
+```
+
+### Objective Function: Cumulative Distance Traveled
+
+```{r}
+
+distance <-function(x1, x2){
+  return ( ((x1[1] - x2[1])**2 + (x1[2] - x2[2])**2) ** 0.5 )
+}
+
+objective <- function(visit_order, l_matrix){
+  distance_traveled = 0
+  
+  for(stop in 2:length(visit_order)){
+    distance_traveled = distance_traveled + distance(l_matrix[stop, ], l_matrix[stop -1, ])
+  }
+  
+  return(distance_traveled)
+}
+
+
+
+```
+
+### Location Query + Simulated Annealing
+
+Using AI for the query allows for locations to be non-exact, accounts for spelling errors, etc.
+
+```{r}
+
+
+opt_function <- function(locations){
+  
+  #Geocoding with Gemini
+
+  gemini_api_key <- "AIzaSyDH7u4br1vaVibwFSQF2EGy0lDur7Nj1iQ"
+  
+  locations_json <- toJSON(locations, auto_unbox = FALSE)
+  
+  prompt <- paste0(
+    'Return the coordinates for each of these locations. ',
+    'Respond ONLY with a JSON array of objects in the same order, each with "lon" and "lat" as numeric fields. ',
+    'No extra text, no markdown. Example: [{"lon": 2.2945, "lat": 48.8584}, {"lon": 12.4922, "lat": 41.8902}]\n\n',
+    'Locations: ', locations_json
+  )
+  mychat <- chat_google_gemini(
+    system_prompt = "You are a geocoding assistant. Always respond with valid JSON only.",
+    api_key = gemini_api_key,
+    model = 'gemini-2.5-flash-lite'
+  )
+  
+  capture.output(raw_text <- mychat$chat(prompt), file = nullfile())
+  
+  
+  clean_text <- gsub("```json|```", "", raw_text)
+  clean_text <- trimws(clean_text)
+  coords <- fromJSON(clean_text)
+  location_matrix <- cbind(coords$lon, coords$lat)
+
+  #Simulated Annealing Algorithm
+  #only mess with the locations between the initial and final stop
+  first <- 1
+  last <-length(locations)
+  
+  
+  middle <- 2:(last - 1)
+  
+  N <- 10**3
+  T_cool <- 1
+  
+  curr <- c(first, sample(middle), last)
+  
+  
+  for(iteration in 1:N){
+    
+    proposal <- c(first, sample(middle), last)
+    
+    if(objective(proposal, location_matrix) < objective(curr, location_matrix)){
+      curr <- proposal
+    }
+    
+    else if(min(1, exp(-(objective(proposal, location_matrix) - objective(curr, location_matrix))/T_cool)) >= runif(n = 1)){
+      curr <- proposal
+    }
+    
+    T_cool = 0.9 * T_cool
+      
+    }
+  
+  #Optimal Travel Order:
+  return(locations[curr])
+}
+  
+  
+
+```
+
+```{r}
+#opt_function(c('Massachusetts State House', 'Isabella Stewart Gardner Museum', 'Prudential Center', 'Museum of Fine Arts (Boston)','Massachusetts State House'))
+
+
+
+```
+
+### **R Shiny App: Travel Optimization**
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Travel Order Optimizer"),
+
+  sidebarLayout(
+    sidebarPanel(
+      textAreaInput(
+        inputId     = "words_input",
+        label       = "Enter locations (one per line or comma-separated):",
+        rows        = 15,
+        placeholder = "New York\nLos Angeles\nChicago"
+      ),
+      actionButton("run_btn", "Optimize Order", class = "btn-primary")
+    ),
+
+    mainPanel(
+      h4("Optimized Travel Order"),
+      verbatimTextOutput("result")
+    )
+  )
+)
+
+#Server
+server <- function(input, output, session) {
+
+  result <- eventReactive(input$run_btn, {
+    raw <- input$words_input
+
+    locations <- unlist(strsplit(raw, "[,\n]+"))
+    locations <- trimws(locations)
+    locations <- locations[nchar(locations) > 0]
+
+    if (length(locations) == 0) {
+      return("Please enter at least one location.")
+    }
+
+    opt_function(locations)
+  })
+
+ output$result <- renderPrint({
+    for (i in seq_along(result())) {
+      cat(i, ".", result()[i], "\n")
+    }
+  })
+}
+
+# Launch App
+shinyApp(ui = ui, server = server)
+```
